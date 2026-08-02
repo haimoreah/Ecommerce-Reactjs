@@ -433,3 +433,93 @@ html[lang='ar'] body {
   color: #999;
   font-size: 13px;
 }
+
+/* Login */
+.hg-login {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 60px 20px 20px;
+}
+
+.hg-login-logo {
+  font-family: 'Anton', sans-serif;
+  font-size: 34px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.hg-login-card {
+  background: var(--hg-white);
+  border-radius: var(--hg-radius);
+  padding: 24px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.hg-login-title {
+  font-weight: 700;
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.hg-login-subtitle {
+  color: #777;
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+
+.hg-phone-input {
+  display: flex;
+  align-items: center;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.hg-phone-prefix {
+  padding: 12px;
+  background: #f4f4f4;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hg-phone-input input {
+  flex: 1;
+  border: none;
+  padding: 12px;
+  font-size: 16px;
+  min-width: 0;
+}
+
+.hg-phone-input input:focus {
+  outline: none;
+}
+
+.hg-login-error {
+  color: #c0392b;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.hg-login-links {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.hg-link-btn {
+  background: none;
+  border: none;
+  color: var(--hg-black);
+  text-decoration: underline;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hg-link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

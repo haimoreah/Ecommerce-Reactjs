@@ -10,6 +10,26 @@ A self-hosted online ordering website for Hoagies (Cheesesteaks & More), built w
 - Checkout form (name, phone, address for delivery, notes)
 - Orders are sent straight to your restaurant's WhatsApp number as a pre-filled message — no backend server or payment subscription needed to start taking orders
 - Cash on Delivery / Pay at Pickup by default; a "Pay by Card" option is scaffolded and ready to switch on once you connect a real payment provider
+- Phone number login with SMS OTP verification (Jordan, +962) via Firebase Phone Authentication, before customers can browse the menu
+
+## Phone login (OTP) setup
+
+Customers verify their phone number with an SMS code before ordering, using [Firebase Phone Authentication](https://firebase.google.com/docs/auth/web/phone-auth) (free for typical small-restaurant volumes, no server of your own required).
+
+1. Go to the [Firebase console](https://console.firebase.google.com/), create a project.
+2. In **Build → Authentication → Sign-in method**, enable the **Phone** provider.
+3. In **Project settings → General → Your apps**, add a **Web app** and copy its config values.
+4. Copy `.env.example` to `.env` and fill in the values:
+   ```
+   REACT_APP_FIREBASE_API_KEY=...
+   REACT_APP_FIREBASE_AUTH_DOMAIN=...
+   REACT_APP_FIREBASE_PROJECT_ID=...
+   REACT_APP_FIREBASE_APP_ID=...
+   ```
+5. Still in the Firebase console, under **Authentication → Settings → Authorized domains**, add the domain you'll deploy to (e.g. your restaurant's domain) so phone sign-in works there too.
+6. Restart `npm start` / rebuild — the login screen will switch from the "Firebase setup needed" notice to the real phone/OTP flow.
+
+Until `.env` is filled in, the site shows a setup notice on the login screen instead of crashing, so you can keep developing everything else in the meantime.
 
 ## Configuration
 

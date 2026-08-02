@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import Header from '../components/Header'
 import { useLang } from '../context/LangContext'
 import { useCart } from '../context/CartContext'
+import { useAuth } from '../context/AuthContext'
 import restaurant from '../config/restaurant'
 import jumpTo from '../modules/Navigation'
 
@@ -24,9 +25,10 @@ function buildWhatsAppMessage({ lang, items, totalPrice, orderType, name, phone,
 export default function Checkout() {
   const { lang, t } = useLang()
   const { items, totalPrice, clearCart } = useCart()
+  const { user } = useAuth()
   const [orderType, setOrderType] = useState('pickup')
   const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  const phone = user ? user.phoneNumber : ''
   const [address, setAddress] = useState('')
   const [notes, setNotes] = useState('')
   const [payment, setPayment] = useState('cash')
@@ -69,7 +71,7 @@ export default function Checkout() {
             <input placeholder={t('name')} value={name} onChange={e => setName(e.target.value)} />
           </div>
           <div className="hg-form-group">
-            <input placeholder={t('phone')} value={phone} onChange={e => setPhone(e.target.value)} />
+            <input placeholder={t('phone')} value={phone} readOnly />
           </div>
           {orderType === 'delivery' && (
             <div className="hg-form-group">

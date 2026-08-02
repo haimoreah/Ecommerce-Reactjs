@@ -2,11 +2,13 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import { useLang } from '../context/LangContext'
 import { useCart } from '../context/CartContext'
+import { useAuth } from '../context/AuthContext'
 import restaurant from '../config/restaurant'
 
 export default function Header() {
   const { lang, toggleLang, t } = useLang()
   const { totalCount } = useCart()
+  const { logout } = useAuth()
 
   return (
     <header className="hg-header">
@@ -18,6 +20,9 @@ export default function Header() {
         <div className="hg-header-actions">
           <button className="hg-lang-btn" onClick={toggleLang}>
             {lang === 'en' ? 'عربي' : 'EN'}
+          </button>
+          <button className="hg-lang-btn" onClick={logout}>
+            {t('logout')}
           </button>
           <Link to="/bag" className="hg-cart-btn">
             {t('yourBag')}

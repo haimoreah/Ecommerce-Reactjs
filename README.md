@@ -1,76 +1,50 @@
-# Full stack ecommerce online store application
+# Hoagies — Online Ordering Website
 
-#### back-end code [click here](https://github.com/levelopers/Ecommerce-Nodejs)
+A self-hosted online ordering website for Hoagies (Cheesesteaks & More), built with React. No third-party ordering platform subscription required — you own the code, the hosting, and the customer data.
 
-## General Info 
+## Features
 
-front-end: Reactjs, Redux, Axios, Sass, react-bootstrap
+- Bilingual menu (English / Arabic with full RTL layout)
+- Pickup and Delivery toggle
+- Cart with quantity controls, persisted in the browser
+- Checkout form (name, phone, address for delivery, notes)
+- Orders are sent straight to your restaurant's WhatsApp number as a pre-filled message — no backend server or payment subscription needed to start taking orders
+- Cash on Delivery / Pay at Pickup by default; a "Pay by Card" option is scaffolded and ready to switch on once you connect a real payment provider
 
-back-end: Node.js, Express, Restful API, paypal-sdk, mongodb, mongoose, jwt(jsonwebtoken), heroku, firebase, swaggerHub
+## Configuration
 
-## snapshots
+Edit `src/config/restaurant.js`:
 
+```js
+const restaurant = {
+  name: 'Hoagies',
+  tagline: { en: 'Cheesesteaks & More', ar: '...' },
+  currency: 'JOD',
+  whatsappNumber: '9627XXXXXXXX', // your restaurant's WhatsApp number, international format, no + or spaces
+  onlinePaymentEnabled: false,    // set true once a payment provider is wired up
+}
+```
 
-<details>
- <summary>dashboard</summary>
- <p>
-   
-![dashboard_large](https://user-images.githubusercontent.com/38830527/57897997-477ce000-7825-11e9-84f2-dcc66c7a378b.png)
-- - - - -
-side menu             |  dashboard
-:-------------------------:|:-------------------------:
-![side_menu_sm](https://user-images.githubusercontent.com/38830527/57898258-3e404300-7826-11e9-97dc-1475eaf95c70.png)  |  ![dashboard_sm](https://user-images.githubusercontent.com/38830527/57898213-0f29d180-7826-11e9-97cd-a19323b5d5cd.png)
-</p>
-</details>
+Edit the menu itself in `src/data/menu.js` (categories + items, English & Arabic name/description/price).
 
-<details>
- <summary>product-overview</summary>
- <p>
-   
-   ![product_overview_large](https://user-images.githubusercontent.com/38830527/57897999-477ce000-7825-11e9-989e-4d95938b6578.PNG)
-</p>
-</details>
+## Online card payments
 
-<details>
- <summary>checkout</summary>
- <p>
-   
-![checkout_large](https://user-images.githubusercontent.com/38830527/57897994-46e44980-7825-11e9-86ec-5c086675c98d.PNG)
-   
-</p>
-</details>
+Card payment is not connected out of the box — that requires your own merchant account with a payment provider (e.g. Stripe, HyperPay, PayTabs) and, typically, a small backend/serverless function to create the charge securely. Once you have provider credentials, wire the "Pay by Card" option in `src/pages/Checkout.js` to that provider's checkout flow and set `onlinePaymentEnabled: true` in the config above.
 
+## Development
 
-<details>
- <summary>checkout confirm</summary>
- <p>
-   
-![checkout_confirm_large](https://user-images.githubusercontent.com/38830527/57897993-46e44980-7825-11e9-9ecf-6de74dd69eb2.PNG)
-   
-</p>
-</details>
+```
+npm install
+npm start       # local dev server
+npm run build   # production build in /build, deployable to any static host or your own domain
+```
 
+If you hit an OpenSSL error running on newer Node.js versions, use:
 
-<details>
- <summary>checkout success</summary>
- <p>
-   
-![checkout_success_large](https://user-images.githubusercontent.com/38830527/57897996-46e44980-7825-11e9-8247-c0d97cfc39e9.PNG)
-   
-</p>
-</details>
+```
+NODE_OPTIONS=--openssl-legacy-provider npm run build
+```
 
+## Deployment
 
-<details>
- <summary>login</summary>
- <p>
-   
-![login_large](https://user-images.githubusercontent.com/38830527/57897998-477ce000-7825-11e9-84d8-16d59b65edb4.PNG)
-   
-</p>
-</details>
-
-
-
-
-
+The `build/` folder is a static site — deploy it to your own domain via any static host (Netlify, Vercel, S3 + CloudFront, a plain VPS with nginx, etc.).

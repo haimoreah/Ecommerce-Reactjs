@@ -8,7 +8,7 @@ import restaurant from '../config/restaurant'
 export default function Header() {
   const { lang, toggleLang, t } = useLang()
   const { totalCount } = useCart()
-  const { logout } = useAuth()
+  const { logout, isFirebaseConfigured } = useAuth()
 
   return (
     <header className="hg-header">
@@ -21,9 +21,11 @@ export default function Header() {
           <button className="hg-lang-btn" onClick={toggleLang}>
             {lang === 'en' ? 'عربي' : 'EN'}
           </button>
-          <button className="hg-lang-btn" onClick={logout}>
-            {t('logout')}
-          </button>
+          {isFirebaseConfigured && (
+            <button className="hg-lang-btn" onClick={logout}>
+              {t('logout')}
+            </button>
+          )}
           <Link to="/bag" className="hg-cart-btn">
             {t('yourBag')}
             {totalCount > 0 && <span className="hg-cart-badge">{totalCount}</span>}

@@ -12,20 +12,30 @@ import OrderConfirmation from './pages/OrderConfirmation'
 import './App.css'
 
 function Gate() {
-  const { user, initializing } = useAuth()
+  const { user, initializing, isFirebaseConfigured } = useAuth()
 
-  if (initializing) return null
-  if (!user) return <Login />
+  if (isFirebaseConfigured) {
+    if (initializing) return null
+    if (!user) return <Login />
+  }
 
   return (
-    <Router ref={registerNav}>
-      <Switch>
-        <Route exact path="/" component={Menu} />
-        <Route path="/bag" component={Cart} />
-        <Route path="/checkout" component={Checkout} />
-        <Route path="/order-confirmation" component={OrderConfirmation} />
-      </Switch>
-    </Router>
+    <>
+      {!isFirebaseConfigured && (
+        <div className="hg-dev-banner">
+          Phone login isn't connected yet (no Firebase config) — skipping straight to the menu
+          for now. See README for setup.
+        </div>
+      )}
+      <Router ref={registerNav}>
+        <Switch>
+          <Route exact path="/" component={Menu} />
+          <Route path="/bag" component={Cart} />
+          <Route path="/checkout" component={Checkout} />
+          <Route path="/order-confirmation" component={OrderConfirmation} />
+        </Switch>
+      </Router>
+    </>
   )
 }
 

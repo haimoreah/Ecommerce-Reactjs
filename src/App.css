@@ -434,6 +434,14 @@ html[lang='ar'] body {
   font-size: 13px;
 }
 
+.hg-dev-banner {
+  background: #333;
+  color: #fff;
+  text-align: center;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
 /* Login */
 .hg-login {
   max-width: 420px;

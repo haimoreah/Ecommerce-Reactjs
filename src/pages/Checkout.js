@@ -25,10 +25,11 @@ function buildWhatsAppMessage({ lang, items, totalPrice, orderType, name, phone,
 export default function Checkout() {
   const { lang, t } = useLang()
   const { items, totalPrice, clearCart } = useCart()
-  const { user } = useAuth()
+  const { user, isFirebaseConfigured } = useAuth()
   const [orderType, setOrderType] = useState('pickup')
   const [name, setName] = useState('')
-  const phone = user ? user.phoneNumber : ''
+  const [manualPhone, setManualPhone] = useState('')
+  const phone = isFirebaseConfigured ? (user ? user.phoneNumber : '') : manualPhone
   const [address, setAddress] = useState('')
   const [notes, setNotes] = useState('')
   const [payment, setPayment] = useState('cash')
@@ -71,7 +72,12 @@ export default function Checkout() {
             <input placeholder={t('name')} value={name} onChange={e => setName(e.target.value)} />
           </div>
           <div className="hg-form-group">
-            <input placeholder={t('phone')} value={phone} readOnly />
+            <input
+              placeholder={t('phone')}
+              value={phone}
+              readOnly={isFirebaseConfigured}
+              onChange={e => setManualPhone(e.target.value)}
+            />
           </div>
           {orderType === 'delivery' && (
             <div className="hg-form-group">

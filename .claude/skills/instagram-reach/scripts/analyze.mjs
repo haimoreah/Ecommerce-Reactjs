@@ -178,14 +178,31 @@ if (!existsSync(CSV)) {
   process.exit(1);
 }
 
-const reels = loadReels(CSV).map(derive);
+// Promoted reels must never enter the benchmarks. Ad delivery and the organic
+// recommendation system are separate pipes: paid impressions land on cold
+// audiences with no intent, so their watch time and reach describe the budget,
+// not the content. Pooling them would poison every percentile in this file.
+const isPromoted = r => ['yes', 'y', 'true', '1'].includes(String(r.promoted ?? '').trim().toLowerCase());
+
+const allReels = loadReels(CSV).map(derive);
+const promotedReels = allReels.filter(isPromoted);
+const reels = allReels.filter(r => !isPromoted(r));
 const n = reels.length;
 
 say('='.repeat(64));
 say('  REEL DATABASE ANALYSIS');
 say('='.repeat(64));
 say(`Source : ${CSV}`);
-say(`Reels  : ${n}`);
+say(`Organic reels : ${n}`);
+if (promotedReels.length) {
+  say(`Promoted reels: ${promotedReels.length}  — EXCLUDED from all analysis below`);
+  say('');
+  say('⚠  Boosted reels are not evidence about your content. Paid delivery and the');
+  say('   organic recommendation system are separate: ad impressions reach cold');
+  say('   audiences with no intent, so a ~1s average watch time is normal for them');
+  say('   and says nothing about your hook. Their reach measures spend, not quality.');
+  say('   Never benchmark, compare, or draw retention conclusions from these rows.');
+}
 say('');
 
 if (n === 0) {

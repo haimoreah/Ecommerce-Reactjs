@@ -1,4 +1,4 @@
-reel_id,date,predicted_score,predicted_verdict,topic,angle,hook_type,hook_wording,length_sec,posting_time,editing_style,cta,views,reach,followers_reach,non_followers_reach,avg_watch_time_sec,replays,likes,comments,shares,saves,follows,profile_visits,notes
-R-A,,,,chess,,,,39,,,,,14235,,,,,91,22,89,32,0,,viewers 14235 / interactions 256 / non-follower 37.5pct is of INTERACTIONS not reach / watch time not shown
-R-C,2026-06-11,,,chess,,,,55,,,,15707,14329,,,1.36,,103,40,15,58,4,,watch 5h55m4s = 21304s / non-follower 64.8pct of interactions / reposts 20 / insights include ad data
-R-B,2026-06-16,,,gold-war,,,,43,,,,16931,,,,1.33,,93,11,19,61,1,,watch 6h14m26s = 22466s / Viewers reported 315 vs Views 16931 ANOMALY / non-follower 58.6pct of interactions / reposts 15 / insights include ad data
+reel_id,date,promoted,predicted_score,predicted_verdict,topic,angle,hook_type,hook_wording,length_sec,posting_time,editing_style,cta,views,reach,followers_reach,non_followers_reach,avg_watch_time_sec,replays,likes,comments,shares,saves,follows,profile_visits,notes
+R-A,,yes,,,chess,,,,39,,,,,14235,,,,,91,22,89,32,0,,viewers 14235 / interactions 256 / non-follower 37.5pct is of INTERACTIONS not reach / watch time not shown
+R-C,2026-06-11,yes,,,chess,,,,55,,,,15707,14329,,,1.36,,103,40,15,58,4,,watch 5h55m4s = 21304s / non-follower 64.8pct of interactions / reposts 20 / insights include ad data
+R-B,2026-06-16,yes,,,gold-war,,,,43,,,,16931,,,,1.33,,93,11,19,61,1,,watch 6h14m26s = 22466s / Viewers reported 315 vs Views 16931 ANOMALY / non-follower 58.6pct of interactions / reposts 15 / insights include ad data

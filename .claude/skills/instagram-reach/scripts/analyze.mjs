@@ -1,0 +1,366 @@
+#!/usr/bin/env node
+// Reel database analyzer — computes per-reel rates, account benchmarks
+// (FLOOR/TARGET/BREAKOUT) and winning/losing patterns from data/reels.csv.
+//
+// Usage: node .claude/skills/instagram-reach/scripts/analyze.mjs [path/to/reels.csv]
+//
+// Design rule: this script never invents numbers. Small samples are reported
+// as insufficient rather than smoothed over.
+
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CSV = process.argv[2] ?? resolve(HERE, '../data/reels.csv');
+
+const MIN_BENCHMARK_N = 10; // below this we refuse to publish benchmarks
+const STABLE_N = 25;        // below this benchmarks are provisional
+const MIN_GROUP_N = 3;      // below this a pattern group is suppressed
+
+// ---------- CSV ----------
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else quoted = false;
+      } else field += c;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else if (c !== '\r') field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => v.trim() !== ''));
+}
+
+function loadReels(path) {
+  const rows = parseCSV(readFileSync(path, 'utf8'));
+  if (!rows.length) return [];
+  const header = rows[0].map(h => h.trim());
+  return rows.slice(1).map(cells => {
+    const o = {};
+    header.forEach((h, i) => { o[h] = (cells[i] ?? '').trim(); });
+    return o;
+  });
+}
+
+const num = v => {
+  const n = Number(String(v).replace(/[, ]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+
+// ---------- stats ----------
+
+// Linear-interpolated percentile on a sorted ascending array.
+function percentile(sorted, p) {
+  if (!sorted.length) return null;
+  if (sorted.length === 1) return sorted[0];
+  const idx = (sorted.length - 1) * (p / 100);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+const median = xs => percentile([...xs].sort((a, b) => a - b), 50);
+
+const pct = x => x == null ? '—' : `${(x * 100).toFixed(2)}%`;
+const int = x => x == null ? '—' : Math.round(x).toLocaleString('en-US');
+
+function lengthBucket(sec) {
+  if (sec == null) return 'unknown';
+  if (sec <= 10) return '0-10s';
+  if (sec <= 20) return '11-20s';
+  if (sec <= 30) return '21-30s';
+  if (sec <= 45) return '31-45s';
+  if (sec <= 60) return '46-60s';
+  return '60s+';
+}
+
+// ---------- derive ----------
+
+function derive(r) {
+  const reach = num(r.reach);
+  const safe = (n) => (reach && reach > 0 && n != null) ? n / reach : null;
+  const len = num(r.length_sec);
+  const avgWatch = num(r.avg_watch_time_sec);
+  return {
+    ...r,
+    _reach: reach,
+    _length: len,
+    _bucket: lengthBucket(len),
+    likeRate: safe(num(r.likes)),
+    commentRate: safe(num(r.comments)),
+    shareRate: safe(num(r.shares)),
+    saveRate: safe(num(r.saves)),
+    followConv: safe(num(r.follows)),
+    profileConv: safe(num(r.profile_visits)),
+    nonFollowerPct: safe(num(r.non_followers_reach)),
+    retentionProxy: (len && len > 0 && avgWatch != null) ? avgWatch / len : null,
+  };
+}
+
+// Metrics used for benchmarks, ordered by the account's goal priority.
+const METRICS = [
+  ['non_followers_reach', 'Non-Follower Reach', r => num(r.non_followers_reach), int],
+  ['nonFollowerPct',      'Non-Follower %',     r => r.nonFollowerPct,           pct],
+  ['retentionProxy',      'Retention Proxy',    r => r.retentionProxy,           pct],
+  ['shareRate',           'Share Rate',         r => r.shareRate,                pct],
+  ['commentRate',         'Comment Rate',       r => r.commentRate,              pct],
+  ['likeRate',            'Like Rate',          r => r.likeRate,                 pct],
+  ['saveRate',            'Save Rate',          r => r.saveRate,                 pct],
+  ['followConv',          'Follow Conversion',  r => r.followConv,               pct],
+  ['profileConv',         'Profile Conversion', r => r.profileConv,              pct],
+  ['reach',               'Reach',              r => r._reach,                   int],
+  ['likes',               'Likes',              r => num(r.likes),               int],
+];
+
+const out = [];
+const say = s => out.push(s);
+
+// ---------- report ----------
+
+if (!existsSync(CSV)) {
+  console.error(`✗ Not found: ${CSV}`);
+  process.exit(1);
+}
+
+const reels = loadReels(CSV).map(derive);
+const n = reels.length;
+
+say('='.repeat(64));
+say('  REEL DATABASE ANALYSIS');
+say('='.repeat(64));
+say(`Source : ${CSV}`);
+say(`Reels  : ${n}`);
+say('');
+
+if (n === 0) {
+  say('⚠  DATABASE EMPTY — no analysis possible.');
+  say('');
+  say('   Add one row per published Reel to data/reels.csv, then re-run.');
+  say('   Any judgement made now rests on general principles, NOT on this');
+  say('   account\'s data. CONFIDENCE = LOW until n >= 10.');
+  say('');
+  say('   Required per reel: reach, non_followers_reach, avg_watch_time_sec,');
+  say('   length_sec, likes, comments, shares, saves, follows, profile_visits.');
+  console.log(out.join('\n'));
+  process.exit(0);
+}
+
+// --- benchmarks ---
+say('-'.repeat(64));
+say('  BENCHMARKS   FLOOR = p25 · TARGET = median · BREAKOUT = p90');
+say('-'.repeat(64));
+
+if (n < MIN_BENCHMARK_N) {
+  say(`⚠  INSUFFICIENT DATA (n=${n}, need ${MIN_BENCHMARK_N}).`);
+  say('   Benchmarks are NOT published below this threshold — a median over');
+  say(`   ${n} reels is noise, not a target. Raw per-reel rates are shown below.`);
+} else {
+  if (n < STABLE_N) {
+    say(`⚠  PROVISIONAL (n=${n} < ${STABLE_N}) — treat as unstable; recheck every ~10 reels.`);
+  }
+  say('');
+  say('Metric                 FLOOR         TARGET        BREAKOUT');
+  say('-'.repeat(64));
+  for (const [, label, get, fmt] of METRICS) {
+    const vals = reels.map(get).filter(v => v != null).sort((a, b) => a - b);
+    if (vals.length < MIN_BENCHMARK_N) continue;
+    const cells = [25, 50, 90].map(p => fmt(percentile(vals, p)).padEnd(13));
+    say(`${label.padEnd(22)} ${cells.join('')}`);
+  }
+}
+say('');
+
+// --- per-reel classification ---
+say('-'.repeat(64));
+say('  PER-REEL  (classified on Share Rate vs account median)');
+say('-'.repeat(64));
+
+const shareRates = reels.map(r => r.shareRate).filter(v => v != null);
+const medShare = shareRates.length ? median(shareRates) : null;
+const medNonFol = (() => {
+  const v = reels.map(r => r.nonFollowerPct).filter(x => x != null);
+  return v.length ? median(v) : null;
+})();
+
+say('ID           Reach     NonFol%   Retn%    Share%   Like%    Class');
+say('-'.repeat(64));
+for (const r of reels) {
+  let cls = '—';
+  if (medShare != null && r.shareRate != null && medShare > 0) {
+    const ratio = r.shareRate / medShare;
+    cls = ratio >= 1.5 ? 'WINNER' : ratio <= 0.6 ? 'LOSER' : 'NORMAL';
+  }
+  say(
+    (r.reel_id || '?').padEnd(12) +
+    int(r._reach).padEnd(10) +
+    pct(r.nonFollowerPct).padEnd(10) +
+    pct(r.retentionProxy).padEnd(9) +
+    pct(r.shareRate).padEnd(9) +
+    pct(r.likeRate).padEnd(9) +
+    cls
+  );
+}
+say('');
+
+// --- patterns ---
+say('-'.repeat(64));
+say('  PATTERNS   vs account median · groups with n<3 suppressed');
+say('-'.repeat(64));
+
+const DIMENSIONS = [
+  ['hook_type', r => r.hook_type],
+  ['topic', r => r.topic],
+  ['length_bucket', r => r._bucket],
+  ['cta', r => r.cta],
+  ['editing_style', r => r.editing_style],
+];
+
+let anyPattern = false;
+const winning = [], losing = [];
+// Track which reels back each flagged pattern, so we can detect dimensions
+// that are really the same reels wearing different labels.
+const membership = new Map();
+
+for (const [dimName, get] of DIMENSIONS) {
+  const groups = new Map();
+  for (const r of reels) {
+    const k = (get(r) || '').trim();
+    if (!k) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  if (!groups.size) continue;
+
+  const lines = [], skipped = [];
+  for (const [key, rs] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
+    if (rs.length < MIN_GROUP_N) { skipped.push(`${key} (n=${rs.length})`); continue; }
+
+    const gShare = rs.map(r => r.shareRate).filter(v => v != null);
+    const gNonFol = rs.map(r => r.nonFollowerPct).filter(v => v != null);
+    if (!gShare.length) continue;
+
+    const gs = median(gShare);
+    const gnf = gNonFol.length ? median(gNonFol) : null;
+    const delta = (medShare && medShare > 0) ? (gs / medShare - 1) * 100 : null;
+
+    let flag = '';
+    // 20% is the noise floor for Instagram reach variance on small samples.
+    if (delta != null && delta >= 20) { flag = '  ← WINNING'; winning.push(`${dimName}="${key}" share rate +${delta.toFixed(0)}% vs median (n=${rs.length})`); }
+    else if (delta != null && delta <= -20) { flag = '  ← LOSING'; losing.push(`${dimName}="${key}" share rate ${delta.toFixed(0)}% vs median (n=${rs.length})`); }
+    if (flag) {
+      const ids = rs.map(r => r.reel_id || '?').sort();
+      membership.set(`${dimName}="${key}"`, new Set(ids));
+    }
+
+    lines.push(
+      `  ${key.slice(0, 20).padEnd(21)} n=${String(rs.length).padEnd(4)} ` +
+      `share ${pct(gs).padEnd(9)} nonFol ${pct(gnf).padEnd(9)} ` +
+      `${delta == null ? '' : (delta >= 0 ? '+' : '') + delta.toFixed(0) + '%'}${flag}`
+    );
+  }
+
+  if (lines.length) {
+    anyPattern = true;
+    say('');
+    say(`▸ ${dimName}`);
+    lines.forEach(l => say(l));
+    if (skipped.length) say(`  (suppressed, n<${MIN_GROUP_N}: ${skipped.join(', ')})`);
+  }
+}
+
+if (!anyPattern) {
+  say('');
+  say(`⚠  No group reached n>=${MIN_GROUP_N}. No pattern claims can be made yet.`);
+  say('   Do NOT infer patterns from single reels — one reel is not a trend.');
+}
+
+say('');
+say('-'.repeat(64));
+say('  WINNING / LOSING PATTERNS');
+say('-'.repeat(64));
+if (!winning.length && !losing.length) {
+  say('None exceed the ±20% noise floor. Nothing is proven yet.');
+} else {
+  winning.forEach(w => say(`WINNING  ${w}`));
+  losing.forEach(l => say(`LOSING   ${l}`));
+
+  // Confounded patterns: two labels backed by an identical (or near-identical)
+  // set of reels are ONE finding, not two. Reporting them separately manufactures
+  // false corroboration — the classic way a dashboard lies with real numbers.
+  const keys = [...membership.keys()];
+  const confounds = [];
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const a = membership.get(keys[i]), b = membership.get(keys[j]);
+      const inter = [...a].filter(x => b.has(x)).length;
+      const union = new Set([...a, ...b]).size;
+      if (union > 0 && inter / union >= 0.8) {
+        confounds.push(`${keys[i]}  ≡  ${keys[j]}   (${inter}/${union} same reels)`);
+      }
+    }
+  }
+  if (confounds.length) {
+    say('');
+    say('⚠  CONFOUNDED — these labels describe the SAME reels:');
+    confounds.forEach(c => say(`     ${c}`));
+    say('   Count them as ONE observation. You cannot tell which attribute drove');
+    say('   the result until you vary them independently.');
+  }
+
+  say('');
+  say('⚠  These are correlations on a small sample, not causes. Confirm with a');
+  say('   controlled experiment (one variable) before treating them as rules.');
+}
+say('');
+
+// --- 10K likes gap ---
+say('-'.repeat(64));
+say('  10,000 LIKES — GAP ANALYSIS');
+say('-'.repeat(64));
+
+const likeRates = reels.map(r => r.likeRate).filter(v => v != null);
+if (likeRates.length < MIN_BENCHMARK_N) {
+  say(`⚠  Need ${MIN_BENCHMARK_N}+ reels with reach+likes to model this (have ${likeRates.length}).`);
+} else {
+  const medLike = median(likeRates);
+  const reachNeeded = medLike > 0 ? 10000 / medLike : null;
+  const reaches = reels.map(r => r._reach).filter(v => v != null).sort((a, b) => a - b);
+  const best = reaches[reaches.length - 1];
+  const hit = reachNeeded == null ? 0 : reaches.filter(v => v >= reachNeeded).length;
+
+  say(`Account median like rate : ${pct(medLike)}`);
+  say(`Reach needed for 10K likes: ${int(reachNeeded)}`);
+  say(`Best reach achieved       : ${int(best)}`);
+  say(`Reels that cleared it     : ${hit} / ${n}`);
+  say('');
+  if (reachNeeded != null && best < reachNeeded) {
+    say(`⚠  The account has never reached ${int(reachNeeded)}. 10K likes is currently`);
+    say(`   ${(reachNeeded / best).toFixed(1)}x beyond the best reel to date. It is an aspiration,`);
+    say('   not a floor. Raise the median first — do not chase the like count.');
+  } else {
+    say('   Achieved before. Study those reels specifically: what did they share');
+    say('   in hook type, length, and share trigger?');
+  }
+  say('');
+  say('   Likes are an OUTPUT. Work the inputs: sends and watch time drive');
+  say('   non-follower reach, which drives likes. Targeting likes directly');
+  say('   produces content nobody sends.');
+}
+
+say('');
+say('='.repeat(64));
+say('Distribution is decided by Instagram and its users. These are the');
+say("account's own historical percentiles — never a guarantee of any number.");
+say('='.repeat(64));
+
+console.log(out.join('\n'));

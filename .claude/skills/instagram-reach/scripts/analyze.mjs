@@ -71,6 +71,47 @@ function percentile(sorted, p) {
 
 const median = xs => percentile([...xs].sort((a, b) => a - b), 50);
 
+// Fractional ranks with ties averaged — required for a correct Spearman.
+function ranks(xs) {
+  const idx = xs.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
+  const out = new Array(xs.length);
+  let i = 0;
+  while (i < idx.length) {
+    let j = i;
+    while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+    const avg = (i + j) / 2 + 1;
+    for (let k = i; k <= j; k++) out[idx[k][1]] = avg;
+    i = j + 1;
+  }
+  return out;
+}
+
+// Spearman rank correlation. Rank-based, so it survives outliers and the
+// wildly skewed reach distributions Instagram produces.
+function spearman(xs, ys) {
+  const n = xs.length;
+  if (n < 3) return null;
+  const rx = ranks(xs), ry = ranks(ys);
+  const mx = rx.reduce((a, b) => a + b, 0) / n;
+  const my = ry.reduce((a, b) => a + b, 0) / n;
+  let num = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    const a = rx[i] - mx, b = ry[i] - my;
+    num += a * b; dx += a * a; dy += b * b;
+  }
+  if (dx === 0 || dy === 0) return null; // no variance — e.g. every score identical
+  return num / Math.sqrt(dx * dy);
+}
+
+// Approximate two-tailed significance at alpha=0.05 via the t-approximation.
+// Deliberately conservative: below n=10 we refuse to call anything significant.
+function isSignificant(rho, n) {
+  if (rho == null || n < 10) return false;
+  const t = Math.abs(rho) * Math.sqrt((n - 2) / (1 - rho * rho));
+  const crit = n <= 12 ? 2.23 : n <= 15 ? 2.16 : n <= 20 ? 2.10 : n <= 30 ? 2.05 : 1.98;
+  return t > crit;
+}
+
 const pct = x => x == null ? '—' : `${(x * 100).toFixed(2)}%`;
 const int = x => x == null ? '—' : Math.round(x).toLocaleString('en-US');
 
@@ -355,6 +396,91 @@ if (likeRates.length < MIN_BENCHMARK_N) {
   say('   Likes are an OUTPUT. Work the inputs: sends and watch time drive');
   say('   non-follower reach, which drives likes. Targeting likes directly');
   say('   produces content nobody sends.');
+}
+
+// --- calibration: does the rubric actually predict anything? ---
+say('');
+say('-'.repeat(64));
+say('  SCORE CALIBRATION — is the rubric predictive?');
+say('-'.repeat(64));
+
+const scored = reels.filter(r => num(r.predicted_score) != null && r.shareRate != null);
+if (scored.length < MIN_BENCHMARK_N) {
+  say(`⚠  Need ${MIN_BENCHMARK_N}+ reels carrying predicted_score (have ${scored.length}).`);
+  say('   Until then the rubric is an UNVALIDATED opinion. Log the pre-publish');
+  say('   score in predicted_score for every reel — that is what turns this');
+  say('   system from advice into a measured predictor.');
+} else {
+  const ps = scored.map(r => num(r.predicted_score));
+
+  // 1. Is the rubric discriminating, or does everything score 85-90?
+  const spread = Math.max(...ps) - Math.min(...ps);
+  const medScore = median(ps);
+  say(`Scored reels : ${scored.length}`);
+  say(`Score range  : ${Math.min(...ps)} – ${Math.max(...ps)}  (median ${medScore.toFixed(1)})`);
+  if (spread < 15) {
+    say('⚠  SCORE COMPRESSION — range under 15 points. A rubric that rates');
+    say('   everything the same cannot rank anything. Apply the caps harder.');
+  }
+  say('');
+
+  // 2. Rank correlation against the outcomes that actually matter.
+  say('Predicted score vs actual outcome (Spearman rank correlation):');
+  say('');
+  const targets = [
+    ['Share Rate',      r => r.shareRate],
+    ['Non-Follower %',  r => r.nonFollowerPct],
+    ['Retention Proxy', r => r.retentionProxy],
+    ['Reach',           r => r._reach],
+  ];
+  let anyPredictive = false;
+  for (const [label, get] of targets) {
+    const pairs = scored.map(r => [num(r.predicted_score), get(r)]).filter(p => p[1] != null);
+    if (pairs.length < MIN_BENCHMARK_N) { say(`  ${label.padEnd(18)} — insufficient data`); continue; }
+    const rho = spearman(pairs.map(p => p[0]), pairs.map(p => p[1]));
+    if (rho == null) { say(`  ${label.padEnd(18)} — no variance`); continue; }
+    const sig = isSignificant(rho, pairs.length);
+    if (sig && rho > 0) anyPredictive = true;
+    const strength = Math.abs(rho) >= 0.7 ? 'strong' : Math.abs(rho) >= 0.4 ? 'moderate' : 'weak';
+    say(`  ${label.padEnd(18)} rho=${rho >= 0 ? '+' : ''}${rho.toFixed(2)}  ${strength.padEnd(9)}` +
+        `${sig ? 'significant' : 'NOT significant'}  (n=${pairs.length})`);
+  }
+  say('');
+
+  // 3. Does the gate itself separate outcomes?
+  const approved = scored.filter(r => num(r.predicted_score) >= 85);
+  const below = scored.filter(r => num(r.predicted_score) < 85);
+  if (approved.length >= 3 && below.length >= 3) {
+    const ma = median(approved.map(r => r.shareRate).filter(v => v != null));
+    const mb = median(below.map(r => r.shareRate).filter(v => v != null));
+    say(`Gate check   >=85 median share rate ${pct(ma)} (n=${approved.length})`);
+    say(`             <85  median share rate ${pct(mb)} (n=${below.length})`);
+    if (ma != null && mb != null) {
+      if (ma <= mb) {
+        say('🚨 THE GATE IS INVERTED — approved reels did NOT outperform rejected ones.');
+        say('   The 85 threshold is not earning its place. Do not trust it until');
+        say('   the rubric weights are re-derived from this data.');
+      } else {
+        say(`   Approved outperform by ${((ma / mb - 1) * 100).toFixed(0)}%.`);
+      }
+    }
+  } else {
+    say('Gate check   — need 3+ reels on each side of the 85 threshold.');
+  }
+
+  say('');
+  if (!anyPredictive) {
+    say('⚠  VERDICT: no significant positive correlation yet. The score is not');
+    say('   demonstrably predicting performance on this account. Treat rubric');
+    say('   output as a structured opinion, NOT as evidence.');
+  } else {
+    say('✓  The score shows a significant positive relationship with at least one');
+    say('   outcome. Keep logging — recheck every ~10 reels; it can decay.');
+  }
+  say('');
+  say('   Note: correlation here is not proof the rubric CAUSES performance.');
+  say('   It shows the score ranks reels in roughly the right order — which is');
+  say('   all a pre-publish gate needs to be useful.');
 }
 
 say('');

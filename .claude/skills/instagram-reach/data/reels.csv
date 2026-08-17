@@ -1,1 +1,4 @@
 reel_id,date,predicted_score,predicted_verdict,topic,angle,hook_type,hook_wording,length_sec,posting_time,editing_style,cta,views,reach,followers_reach,non_followers_reach,avg_watch_time_sec,replays,likes,comments,shares,saves,follows,profile_visits,notes
+R-A,,,,chess,,,,39,,,,14235,14235,,,,,91,22,89,32,0,,viewers=14235; interactions=256; 37.5% non-follower figure is of INTERACTIONS not reach; watch time unavailable
+R-B,,,,chess,,,,42,,,,,,,,,,95,11,19,61,1,,reach not captured
+R-C,,,,chess,,,,54,,,,,,,,,,107,40,15,58,4,,reach not captured

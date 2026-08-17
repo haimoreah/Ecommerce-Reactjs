@@ -52,8 +52,13 @@ function loadReels(path) {
   });
 }
 
+// Missing must stay missing: an empty cell is NOT zero. Number('') === 0 would
+// turn "we never captured this" into "we measured none", which is the exact
+// false precision this whole system exists to prevent.
 const num = v => {
-  const n = Number(String(v).replace(/[, ]/g, ''));
+  const s = String(v ?? '').replace(/[, ]/g, '').trim();
+  if (s === '') return null;
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
 };
 

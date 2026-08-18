@@ -161,19 +161,53 @@ for (const cells of rows.slice(1)) {
   }
   rec.avg_watch_time_sec = avg == null ? '' : Number(avg.toFixed(2));
   if (rec.topic) rec.topic = rec.topic.slice(0, 60);
-  out.push(OUT_COLS.map(c => rec[c]).join(','));
+  out.push(rec);
 }
 
-let final = OUT_COLS.join(',') + '\n';
-if (APPEND && existsSync(TARGET)) {
-  const existing = readFileSync(TARGET, 'utf8').trim().split('\n').slice(1).filter(Boolean);
-  final += existing.concat(out).join('\n') + '\n';
-} else {
-  final += out.join('\n') + '\n';
+// Columns no export can carry: the hand-set boosted flag, the pre-publish
+// score, the craft labels. An export that silently replaced them would drop the
+// `promoted` markers, and a blank `promoted` reads as ORGANIC in analyze.mjs --
+// putting boosted reels straight into the organic benchmarks.
+const MANUAL = ['promoted', 'predicted_score', 'predicted_verdict', 'angle', 'hook_type',
+  'hook_wording', 'posting_time', 'editing_style', 'cta'];
+
+const prior = existsSync(TARGET)
+  ? (() => {
+      const lines = readFileSync(TARGET, 'utf8').replace(/\r/g, '').trim().split('\n').filter(l => l.trim());
+      const head = lines[0].split(',').map(h => h.trim());
+      return lines.slice(1).map(l => {
+        const cells = l.split(',');
+        return Object.fromEntries(head.map((h, i) => [h, (cells[i] ?? '').trim()]));
+      });
+    })()
+  : [];
+
+const claimed = new Set();
+for (const rec of out) {
+  let was = prior.find(p => p.reel_id && p.reel_id === rec.reel_id && !claimed.has(p.reel_id));
+  if (!was && rec.date) was = prior.find(p => p.date === rec.date && !claimed.has(p.reel_id));
+  if (!was) continue;
+  claimed.add(was.reel_id);
+  for (const c of MANUAL) if (was[c] && !rec[c]) rec[c] = was[c];
+  // The export has no follower split; keep whatever was typed in by hand.
+  for (const c of ['followers_reach', 'non_followers_reach']) if (was[c] && !rec[c]) rec[c] = was[c];
+  if (was.notes) rec.notes = clean([was.notes, rec.notes].filter(Boolean).join(' / '));
+  if (was.reel_id !== rec.reel_id) rec.notes = clean(`was ${was.reel_id} / ${rec.notes}`);
 }
-writeFileSync(TARGET, final);
+if (PROMOTED) for (const rec of out) rec.promoted = 'yes';
+
+const orphans = APPEND ? prior.filter(p => !claimed.has(p.reel_id)) : [];
+const line = r => OUT_COLS.map(c => clean(r[c] ?? '')).join(',');
+writeFileSync(TARGET, OUT_COLS.join(',') + '\n' + orphans.concat(out).map(line).join('\n') + '\n');
 
 console.log(`✓ Imported ${out.length} reels → ${TARGET}`);
 if (derivedCount) console.log(`  ${derivedCount} average watch times derived from total watch time.`);
+if (claimed.size) console.log(`  ${claimed.size} row(s) matched existing entries — hand-entered columns preserved.`);
+const dropped = prior.filter(p => !claimed.has(p.reel_id));
+if (dropped.length && !APPEND) {
+  console.log(`\n⚠  ${dropped.length} existing row(s) were NOT matched and have been REPLACED:`);
+  for (const d of dropped) console.log(`     ${d.reel_id}${d.date ? ` (${d.date})` : ' — no date to match on'}`);
+  console.log('   Re-run with --append to keep them instead.');
+}
 if (!PROMOTED) console.log('  Rows left unmarked: set promoted=yes on any boosted reel before trusting benchmarks.');
 console.log('\nNext: node .claude/skills/instagram-reach/scripts/analyze.mjs');

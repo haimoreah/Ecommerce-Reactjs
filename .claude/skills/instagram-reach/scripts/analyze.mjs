@@ -168,6 +168,45 @@ const METRICS = [
   ['likes',               'Likes',              r => num(r.likes),               int],
 ];
 
+// Promoted reels: absolute numbers describe the budget, but two boosted reels
+// delivered to comparable reach are a fair RELATIVE test of the creative — same
+// channel, same cold audience, near-identical denominator. Excluding them from
+// benchmarks is right; refusing to compare them to each other is not, and when
+// no organic rows exist this is the only signal the data can carry.
+function promotedComparison() {
+  if (promotedReels.length < 2) return;
+  const rs = promotedReels
+    .filter(r => r.shareRate != null && r._reach != null)
+    .sort((a, b) => b.shareRate - a.shareRate);
+  if (rs.length < 2) return;
+
+  say('');
+  say('-'.repeat(64));
+  say('  PROMOTED — RELATIVE COMPARISON (not benchmarks)');
+  say('-'.repeat(64));
+  say('ID           Reach      Share%    Like%     vs weakest');
+  say('-'.repeat(64));
+
+  const weakest = rs[rs.length - 1], top = rs[0];
+  for (const r of rs) {
+    const mult = weakest.shareRate > 0 ? r.shareRate / weakest.shareRate : null;
+    say((r.reel_id || '?').padEnd(12) + int(r._reach).padEnd(11) +
+        pct(r.shareRate).padEnd(10) + pct(r.likeRate).padEnd(10) +
+        (mult == null ? '—' : mult.toFixed(1) + 'x'));
+  }
+
+  const spread = top._reach / weakest._reach;
+  say('');
+  if (spread > 1.2 || spread < 0.83) {
+    say('⚠  Reach differs by more than 20% here, so part of the gap is exposure');
+    say('   rather than creative. Treat the comparison as weak.');
+  } else {
+    say('✓  Reach is within 20%, so the share-rate gap reflects the CREATIVE, not');
+    say(`   the spend. ${top.reel_id} is the template worth studying.`);
+  }
+  say('   Still not a benchmark: cold paid audiences share less than organic ones.');
+}
+
 const out = [];
 const say = s => out.push(s);
 
@@ -201,7 +240,8 @@ if (promotedReels.length) {
   say('   organic recommendation system are separate: ad impressions reach cold');
   say('   audiences with no intent, so a ~1s average watch time is normal for them');
   say('   and says nothing about your hook. Their reach measures spend, not quality.');
-  say('   Never benchmark, compare, or draw retention conclusions from these rows.');
+  say('   Never benchmark or draw retention conclusions from these rows. Comparing');
+  say('   two boosted reels to EACH OTHER is still valid — see the section below.');
 }
 say('');
 
@@ -214,6 +254,7 @@ if (n === 0) {
   say('');
   say('   Required per reel: reach, non_followers_reach, avg_watch_time_sec,');
   say('   length_sec, likes, comments, shares, saves, follows, profile_visits.');
+  promotedComparison();   // the only comparison available with no organic rows
   console.log(out.join('\n'));
   process.exit(0);
 }
@@ -504,6 +545,8 @@ if (scored.length < MIN_BENCHMARK_N) {
   say('   It shows the score ranks reels in roughly the right order — which is');
   say('   all a pre-publish gate needs to be useful.');
 }
+
+promotedComparison();
 
 say('');
 say('='.repeat(64));

@@ -11,7 +11,7 @@
 // --confirm. Without it the script builds and validates the container, then
 // stops and shows you exactly what would go out.
 
-const API = 'https://graph.instagram.com/v22.0';
+const API = 'https://graph.instagram.com/v25.0';
 const TOKEN = process.env.IG_ACCESS_TOKEN;
 
 const arg = n => { const i = process.argv.indexOf(n); return i === -1 ? null : process.argv[i + 1]; };
@@ -42,7 +42,8 @@ async function api(path, params = {}, method = 'GET') {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const me = await api('me', { fields: 'id,username' });
+const me = await api('me', { fields: 'user_id,username' });
+me.id = me.user_id ?? me.id;
 console.log(`Account: @${me.username}\n`);
 
 // The 24h cap is enforced at publish time, not on container creation.

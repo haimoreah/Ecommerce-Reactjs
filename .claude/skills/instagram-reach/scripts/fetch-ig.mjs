@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TARGET = resolve(HERE, '../data/reels.csv');
-const API = 'https://graph.instagram.com/v22.0';
+const API = 'https://graph.instagram.com/v25.0';
 
 const TOKEN = process.env.IG_ACCESS_TOKEN;
 if (!TOKEN) {
@@ -71,10 +71,12 @@ const COLS = ['reel_id','date','promoted','predicted_score','predicted_verdict',
 const clean = v => String(v ?? '').replace(/[",\n\r]/g, ' ').trim();
 
 console.log('Fetching account…');
-const me = await api('me', { fields: 'id,username,media_count' });
-console.log(`  @${me.username} — ${me.media_count} media\n`);
+// Instagram Login tokens expose the professional account id as user_id.
+const me = await api('me', { fields: 'user_id,username,media_count,account_type' });
+const IG_ID = me.user_id ?? me.id;
+console.log(`  @${me.username} (${me.account_type ?? '?'}) — ${me.media_count ?? '?'} media\n`);
 
-const media = await api('me/media', {
+const media = await api(`${IG_ID}/media`, {
   fields: 'id,caption,media_type,media_product_type,timestamp,permalink,like_count,comments_count',
   limit: LIMIT,
 });

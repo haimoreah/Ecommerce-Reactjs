@@ -175,7 +175,31 @@ const METRICS = [
 // no organic rows exist this is the only signal the data can carry.
 function promotedComparison() {
   if (promotedReels.length < 2) return;
+
+  // Engagement the owner generated from their own accounts measures nothing.
+  // It also cannot be netted out: subtracting the ad's share count from the
+  // total leaves the self-generated remainder, not the organic one. There is no
+  // arithmetic that recovers a content signal from these rows, so they are
+  // barred from the creative comparison rather than discounted within it.
+  const dirty = promotedReels.filter(isSelfEngaged);
+  if (dirty.length) {
+    say('');
+    say('-'.repeat(64));
+    say('  ⚠  SELF-GENERATED ENGAGEMENT — COMPARISON SUPPRESSED');
+    say('-'.repeat(64));
+    say(`  Excluded: ${dirty.map(r => r.reel_id || '?').join(', ')}`);
+    say('');
+    say('  Interactions on these reels came from accounts the owner controls.');
+    say('  Share rate, like rate and every ratio built on them describe that');
+    say('  activity, not the audience. Do NOT call any of them a template.');
+    say('  Subtracting the ad figures does not fix it — the remainder is the');
+    say('  self-generated part, not the organic one.');
+    say('');
+    say('  A clean signal requires a reel with no boost AND no owner activity.');
+  }
+
   const rs = promotedReels
+    .filter(r => !isSelfEngaged(r))
     .filter(r => r.shareRate != null && r._reach != null)
     .sort((a, b) => b.shareRate - a.shareRate);
   if (rs.length < 2) return;
@@ -222,6 +246,10 @@ if (!existsSync(CSV)) {
 // audiences with no intent, so their watch time and reach describe the budget,
 // not the content. Pooling them would poison every percentile in this file.
 const isPromoted = r => ['yes', 'y', 'true', '1'].includes(String(r.promoted ?? '').trim().toLowerCase());
+
+// Marked by hand in the notes column. Kept as a marker rather than a new column
+// so existing rows and both import scripts keep working unchanged.
+const isSelfEngaged = r => /SELF_ENGAGEMENT/i.test(String(r.notes ?? ''));
 
 const allReels = loadReels(CSV).map(derive);
 const promotedReels = allReels.filter(isPromoted);

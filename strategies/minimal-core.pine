@@ -1,0 +1,87 @@
+//@version=6
+// Minimal core of the strategy -- no filter, no table, no plots.
+// Paste this FIRST. If it compiles, the problem is in one of the parts the
+// full script adds on top, and the comments below say which order to add them
+// back in. If even this fails, the problem is environmental, not the logic.
+
+strategy("Minimal core - Base + DCA1 + TP + SL", overlay = true,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.fixed,
+     pyramiding              = 2,
+     process_orders_on_close = true)
+
+baseUsd     = input.float(10.0,  "Base size (quote ccy)")
+dca1Mult    = input.float(100.0, "DCA1 multiplier (x Base)")
+dropBasePct = input.float(2.0,   "Base: drop % from tracked high")
+dropDca1Pct = input.float(3.0,   "DCA1: drop % from last fill")
+tpPct       = input.float(1.0,   "TP % above average price")
+dca1SlPct   = input.float(5.0,   "SL % below DCA1 price")
+catSlPct    = input.float(20.0,  "Catastrophic SL % below first fill")
+
+bullEngulf = close > open and close[1] < open[1] and open <= close[1] and close >= open[1]
+volRising  = volume > volume[1] and volume > volume[2]
+signal     = bullEngulf and volRising
+
+var bool  armed          = false
+var float trackHigh      = na
+var float firstFillPrice = na
+var float lastFillPrice  = na
+var float dca1Price      = na
+var bool  dca1Done       = false
+var int   nFills         = 0
+
+inPos      = strategy.position_size > 0
+justClosed = not inPos and strategy.position_size[1] > 0
+
+if justClosed
+    armed          := false
+    trackHigh      := na
+    firstFillPrice := na
+    lastFillPrice  := na
+    dca1Price      := na
+    dca1Done       := false
+    nFills         := 0
+    strategy.cancel("Base")
+    strategy.cancel("DCA1")
+
+if signal and not inPos and not armed
+    armed     := true
+    trackHigh := high
+
+if armed and not inPos and high > trackHigh
+    trackHigh := high
+
+baseTrigger = armed and not na(trackHigh) ? trackHigh * (1.0 - dropBasePct / 100.0) : na
+dca1Trigger = inPos and not dca1Done and not na(lastFillPrice) ? lastFillPrice * (1.0 - dropDca1Pct / 100.0) : na
+
+if armed and not inPos and not na(baseTrigger)
+    strategy.entry("Base", strategy.long, qty = baseUsd / baseTrigger, limit = baseTrigger)
+
+if inPos and not dca1Done and not na(dca1Trigger)
+    strategy.entry("DCA1", strategy.long, qty = baseUsd * dca1Mult / dca1Trigger, limit = dca1Trigger)
+
+if strategy.opentrades > nFills
+    px = strategy.opentrades.entry_price(strategy.opentrades - 1)
+    lastFillPrice := px
+    if nFills == 0
+        firstFillPrice := px
+        armed          := false
+    else
+        dca1Done  := true
+        dca1Price := px
+    nFills := strategy.opentrades
+
+avgPrice = inPos ? strategy.position_avg_price : na
+tpPrice  = inPos ? avgPrice * (1.0 + tpPct / 100.0) : na
+catStop  = inPos and not na(firstFillPrice) ? firstFillPrice * (1.0 - catSlPct / 100.0) : na
+dcaStop  = inPos and dca1Done and not na(dca1Price) ? dca1Price * (1.0 - dca1SlPct / 100.0) : na
+stopPrice = na(dcaStop) ? catStop : math.max(dcaStop, catStop)
+
+if inPos and not na(tpPrice) and not na(stopPrice)
+    strategy.exit("EXIT", limit = tpPrice, stop = stopPrice)
+
+// Add back in this order, testing after each step:
+//   1. plot()/plotshape()/bgcolor() lines
+//   2. the pivot-high block and the exhaustion filter booleans
+//   3. runtime.error() stop guard
+//   4. the stats table

@@ -2,69 +2,66 @@
 // =============================================================================
 // Signal -> Track Highest High -> Drop% -> Base + DCA1 + TP + SL
 // =============================================================================
-// Flow:
-//   1. SIGNAL : bullish engulfing candle + rising volume (> last 2 bars)
-//   2. ARM    : after the signal, keep tracking the highest high
-//   3. BASE   : price drops dropBasePct from that tracked high -> small entry
-//   4. DCA1   : price drops dropDca1Pct from the LAST fill -> large entry
-//               (subject to the exhaustion filter, see below)
-//   5. TP     : tpPct above the weighted average of all fills
-//   6. SL     : real stop after DCA1, plus a wider catastrophic stop that is
-//               live from the very first fill
+// 1. SIGNAL : bullish engulfing candle + rising volume (> last 2 bars)
+// 2. ARM    : after the signal, keep tracking the highest high
+// 3. BASE   : price drops dropBasePct from that tracked high -> small entry
+// 4. DCA1   : price drops dropDca1Pct from the LAST fill -> large entry
+// 5. TP     : tpPct above the weighted average of all fills
+// 6. SL     : real stop after DCA1, plus a wider catastrophic stop that is
+//             live from the very first fill
 //
-// EXHAUSTION FILTER (the point of this build):
-//   DCA1 is where nearly all of the real profit AND nearly all of the real risk
-//   lives. Observed on DOT/30m: the DCA1 that fired after a 7-day exhausted
-//   bleed recovered and hit TP, while the DCA1 that fired two days into a fresh
-//   breakdown from the high kept bleeding. So the discriminator is not
-//   "gradual vs sharp" on its own -- it is WHERE in the move DCA1 fills:
-//   at exhaustion (good) or at the start of the breakdown (bad).
+// DCA1 EXHAUSTION FILTER
+// Measured on a year of XRPUSDT 30m: Base entries were net NEGATIVE (-6.97
+// over 152 trades at a 78% win rate) while 33 DCA1 fills produced all of the
+// +138 profit. DCA1 runs at 3.14:1 against, needs a 75.9% win rate to break
+// even and delivered 81.8% -- a margin of 6 points, i.e. two extra losses
+// erase the year. So the only thing worth improving is which DCA1 fills.
 //
-//   The filter blocks DCA1 when BOTH are true:
-//     - there is a run of consecutive lower swing highs (distribution), AND
-//     - the last major high is still recent (the breakdown just started)
-//   A sharp flush (price collapsing within a few bars of the tracked high)
-//   overrides the block, since that is the mean-reverting panic-wick case.
+// The same data shows a clean split: every DCA1 that stayed within 4% of
+// water recovered (25 of 25), while 6 of the 8 that went deeper became the
+// entire loss column. Winners bounce almost immediately. The filter therefore
+// blocks DCA1 when a run of consecutive lower swing highs coincides with a
+// still-recent major high -- the start of a breakdown rather than the end of
+// an exhausted one. A sharp flush overrides the block.
 //
 // NOTE ON THE STOP: a stop wide enough to never trigger makes every backtest
-// result fictional. This script refuses to compile-run with a disabled stop.
+// result fictional. This script refuses to run with a disabled stop.
 // =============================================================================
 
 strategy("Signal -> HH -> Drop% -> Base + DCA1 + TP + SL", overlay = true,
-     initial_capital       = 10000,
-     default_qty_type      = strategy.fixed,
-     commission_type       = strategy.commission.percent,
-     commission_value      = 0.05,
-     slippage              = 1,
-     pyramiding            = 2,
-     calc_on_order_fills   = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.fixed,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.05,
+     slippage                = 1,
+     pyramiding              = 2,
      process_orders_on_close = true)
 
 // ---------------------------------------------------------------- inputs ----
 grpE = "Entries"
-baseUsd     = input.float(10.0,  "Base size (quote ccy)",        minval = 0.1,  group = grpE)
-dca1Mult    = input.float(100.0, "DCA1 multiplier (x Base)",     minval = 1.0,  group = grpE)
+baseUsd     = input.float(10.0,  "Base size (quote ccy)",          minval = 0.1,  group = grpE)
+dca1Mult    = input.float(100.0, "DCA1 multiplier (x Base)",       minval = 1.0,  group = grpE)
 dropBasePct = input.float(2.0,   "Base: drop % from tracked high", minval = 0.05, step = 0.1, group = grpE)
 dropDca1Pct = input.float(3.0,   "DCA1: drop % from last fill",    minval = 0.05, step = 0.1, group = grpE)
 armExpiry   = input.int(200,     "Cancel an unfilled signal after N bars", minval = 5, group = grpE)
 
 grpX = "Exits"
-tpPct       = input.float(1.0,  "TP % above average price", minval = 0.05, step = 0.1, group = grpX)
-dca1SlPct   = input.float(5.0,  "SL % below DCA1 price",    minval = 0.1,  step = 0.1, group = grpX)
-catSlPct    = input.float(20.0, "Catastrophic SL % below first fill", minval = 0.1, step = 0.5, group = grpX)
+tpPct     = input.float(1.0,  "TP % above average price",           minval = 0.05, step = 0.1, group = grpX)
+dca1SlPct = input.float(5.0,  "SL % below DCA1 price",              minval = 0.1,  step = 0.1, group = grpX)
+catSlPct  = input.float(20.0, "Catastrophic SL % below first fill", minval = 0.1,  step = 0.5, group = grpX)
 
 grpF = "DCA1 exhaustion filter"
-useFilter    = input.bool(true, "Enable exhaustion filter on DCA1", group = grpF)
-alsoFilterBase = input.bool(false, "Apply the same filter to Base too", group = grpF)
-pivotLen     = input.int(5,   "Swing-high pivot length",          minval = 2, group = grpF)
-minLowerHighs= input.int(3,   "Block after N consecutive lower highs", minval = 2, maxval = 5, group = grpF)
-majorLookback= input.int(200, "Major-high lookback (bars)",        minval = 20, group = grpF)
-minBarsExh   = input.int(150, "...and major high is newer than N bars", minval = 5, group = grpF)
-flushBars    = input.int(6,   "Sharp-flush override: fill within N bars of the high", minval = 1, group = grpF)
+useFilter      = input.bool(true,  "Enable exhaustion filter on DCA1",       group = grpF)
+alsoFilterBase = input.bool(false, "Apply the same filter to Base too",      group = grpF)
+pivotLen       = input.int(5,   "Swing-high pivot length",                   minval = 2, group = grpF)
+minLowerHighs  = input.int(3,   "Block after N consecutive lower highs",     minval = 2, maxval = 5, group = grpF)
+majorLookback  = input.int(200, "Major-high lookback (bars)",                minval = 20, group = grpF)
+minBarsExh     = input.int(150, "...and major high is newer than N bars",    minval = 5, group = grpF)
+flushBars      = input.int(6,   "Sharp-flush override: fill within N bars of the high", minval = 1, group = grpF)
 
 // ------------------------------------------------- guard: a real stop only ---
 if barstate.isfirst and (catSlPct >= 90.0 or dca1SlPct >= 90.0)
-    runtime.error("Stop is effectively disabled (>=90%). Every result below would be fictional. Set a real stop.")
+    runtime.error("Stop is effectively disabled (>=90%). Every result would be fictional. Set a real stop.")
 
 // ---------------------------------------------------------------- signal ----
 bullEngulf = close > open and close[1] < open[1] and open <= close[1] and close >= open[1]
@@ -86,15 +83,15 @@ if not na(ph)
     ph1 := ph
 
 // N consecutive lower highs needs N pivots, i.e. N-1 successive lower steps
-lowerHighRun = switch minLowerHighs
-    2 => not na(ph2) and ph1 < ph2
-    3 => not na(ph3) and ph1 < ph2 and ph2 < ph3
-    4 => not na(ph4) and ph1 < ph2 and ph2 < ph3 and ph3 < ph4
-    => not na(ph5) and ph1 < ph2 and ph2 < ph3 and ph3 < ph4 and ph4 < ph5
+lh2 = not na(ph2) and ph1 < ph2
+lh3 = lh2 and not na(ph3) and ph2 < ph3
+lh4 = lh3 and not na(ph4) and ph3 < ph4
+lh5 = lh4 and not na(ph5) and ph4 < ph5
+lowerHighRun = minLowerHighs <= 2 ? lh2 : minLowerHighs == 3 ? lh3 : minLowerHighs == 4 ? lh4 : lh5
 
-majorHigh     = ta.highest(high, majorLookback)
+majorHigh      = ta.highest(high, majorLookback)
 barsSinceMajor = ta.barssince(high >= majorHigh)
-// ta.highest() is na until `majorLookback` bars exist -- without this guard the
+// ta.highest() is na until majorLookback bars exist -- without this guard the
 // na would propagate into dca1Allowed and silently block every early DCA1
 breakdownIsFresh = not na(barsSinceMajor) and barsSinceMajor < minBarsExh
 
@@ -157,21 +154,21 @@ if armed and not inPos
 baseTrigger = armed and not na(trackHigh) ? trackHigh * (1.0 - dropBasePct / 100.0) : na
 dca1Trigger = inPos and not dca1Done and not na(lastFillPrice) ? lastFillPrice * (1.0 - dropDca1Pct / 100.0) : na
 
-if armed and not inPos and not na(baseTrigger) and baseAllowed
+canPlaceBase = armed and not inPos and not na(baseTrigger) and baseAllowed
+if canPlaceBase
     strategy.entry("Base", strategy.long, qty = baseUsd / baseTrigger, limit = baseTrigger)
-else if not baseAllowed
+if not baseAllowed
     strategy.cancel("Base")
 
-if inPos and not dca1Done and not na(dca1Trigger)
-    if dca1Allowed
-        strategy.entry("DCA1", strategy.long, qty = (baseUsd * dca1Mult) / dca1Trigger, limit = dca1Trigger)
-    else
-        strategy.cancel("DCA1")
+canPlaceDca1 = inPos and not dca1Done and not na(dca1Trigger) and dca1Allowed
+if canPlaceDca1
+    strategy.entry("DCA1", strategy.long, qty = baseUsd * dca1Mult / dca1Trigger, limit = dca1Trigger)
+if not dca1Allowed
+    strategy.cancel("DCA1")
 
 // ------------------------------------------------------------ record fills ---
 if strategy.opentrades > nFills
-    idx = strategy.opentrades - 1
-    px  = strategy.opentrades.entry_price(idx)
+    px = strategy.opentrades.entry_price(strategy.opentrades - 1)
     lastFillPrice := px
     if nFills == 0
         firstFillPrice := px
@@ -205,45 +202,43 @@ if dca1Done
     hadDca := true
 
 if inPos and not dca1Done and not na(dca1Trigger) and low <= dca1Trigger and not dca1Allowed
-    nDcaBlocked += 1
+    nDcaBlocked := nDcaBlocked + 1
 
 if justClosed
     tradePnl = strategy.netprofit - prevNet
     prevNet := strategy.netprofit
     if hadDca
-        nWithDca    += 1
-        pnlWithDca  += tradePnl
+        nWithDca   := nWithDca + 1
+        pnlWithDca := pnlWithDca + tradePnl
     else
-        nBaseOnly   += 1
-        pnlBaseOnly += tradePnl
+        nBaseOnly   := nBaseOnly + 1
+        pnlBaseOnly := pnlBaseOnly + tradePnl
     hadDca := false
 
 // ------------------------------------------------------------------ plots ----
-plot(armed and not inPos ? trackHigh : na,  "Tracked high", color.new(color.lime, 0),   2, plot.style_linebr)
-plot(baseTrigger,                            "Base trigger", color.new(color.aqua, 0),   1, plot.style_linebr)
-plot(dca1Trigger,                            "DCA1 trigger", color.new(color.orange, 0), 1, plot.style_linebr)
-plot(avgPrice,                               "Avg price",    color.new(color.fuchsia, 0),2, plot.style_linebr)
-plot(tpPrice,                                "TP",           color.new(color.green, 0),  2, plot.style_linebr)
-plot(stopPrice,                              "Stop",         color.new(color.red, 0),    2, plot.style_linebr)
+plotTrack = armed and not inPos ? trackHigh : na
+plot(plotTrack,   "Tracked high", color.new(color.lime, 0),    2, plot.style_linebr)
+plot(baseTrigger, "Base trigger", color.new(color.aqua, 0),    1, plot.style_linebr)
+plot(dca1Trigger, "DCA1 trigger", color.new(color.orange, 0),  1, plot.style_linebr)
+plot(avgPrice,    "Avg price",    color.new(color.fuchsia, 0), 2, plot.style_linebr)
+plot(tpPrice,     "TP",           color.new(color.green, 0),   2, plot.style_linebr)
+plot(stopPrice,   "Stop",         color.new(color.red, 0),     2, plot.style_linebr)
 
 plotshape(signal and not inPos and not armed, "Signal", shape.triangleup, location.belowbar, color.new(color.teal, 0), size = size.tiny)
 bgcolor(inPos and not dca1Done and not dca1Allowed ? color.new(color.red, 90) : na, title = "DCA1 blocked")
 
 // ------------------------------------------------------------------ table ----
+var table stats = table.new(position.top_right, 2, 6, border_width = 1)
 if barstate.islastconfirmedhistory
-    t = table.new(position.top_right, 2, 6, border_width = 1)
-    table.cell(t, 0, 0, "Base-only trades",  text_color = color.gray,  text_size = size.small)
-    table.cell(t, 1, 0, str.tostring(nBaseOnly) + "  |  " + str.tostring(pnlBaseOnly, "#.##"), text_color = pnlBaseOnly >= 0 ? color.green : color.red, text_size = size.small)
-    table.cell(t, 0, 1, "DCA1 trades",       text_color = color.gray,  text_size = size.small)
-    table.cell(t, 1, 1, str.tostring(nWithDca) + "  |  " + str.tostring(pnlWithDca, "#.##"),  text_color = pnlWithDca >= 0 ? color.green : color.red,  text_size = size.small)
-    table.cell(t, 0, 2, "DCA1 blocked by filter", text_color = color.gray, text_size = size.small)
-    table.cell(t, 1, 2, str.tostring(nDcaBlocked), text_color = color.orange, text_size = size.small)
-    table.cell(t, 0, 3, "Net profit",        text_color = color.gray,  text_size = size.small)
-    table.cell(t, 1, 3, str.tostring(strategy.netprofit, "#.##"), text_color = strategy.netprofit >= 0 ? color.green : color.red, text_size = size.small)
-    table.cell(t, 0, 4, "Max drawdown",      text_color = color.gray,  text_size = size.small)
-    table.cell(t, 1, 4, str.tostring(strategy.max_drawdown, "#.##"), text_color = color.red, text_size = size.small)
-    table.cell(t, 0, 5, "Filter",            text_color = color.gray,  text_size = size.small)
-    table.cell(t, 1, 5, useFilter ? "ON" : "OFF", text_color = useFilter ? color.green : color.gray, text_size = size.small)
-
-// ----------------------------------------------------------------- alerts ----
-alertcondition(signal, "Signal", "Bullish engulfing + rising volume")
+    table.cell(stats, 0, 0, "Base-only trades", text_color = color.gray, text_size = size.small)
+    table.cell(stats, 1, 0, str.tostring(nBaseOnly) + "  |  " + str.tostring(pnlBaseOnly, "#.##"), text_color = pnlBaseOnly >= 0 ? color.green : color.red, text_size = size.small)
+    table.cell(stats, 0, 1, "DCA1 trades", text_color = color.gray, text_size = size.small)
+    table.cell(stats, 1, 1, str.tostring(nWithDca) + "  |  " + str.tostring(pnlWithDca, "#.##"), text_color = pnlWithDca >= 0 ? color.green : color.red, text_size = size.small)
+    table.cell(stats, 0, 2, "DCA1 blocked by filter", text_color = color.gray, text_size = size.small)
+    table.cell(stats, 1, 2, str.tostring(nDcaBlocked), text_color = color.orange, text_size = size.small)
+    table.cell(stats, 0, 3, "Net profit", text_color = color.gray, text_size = size.small)
+    table.cell(stats, 1, 3, str.tostring(strategy.netprofit, "#.##"), text_color = strategy.netprofit >= 0 ? color.green : color.red, text_size = size.small)
+    table.cell(stats, 0, 4, "Max drawdown", text_color = color.gray, text_size = size.small)
+    table.cell(stats, 1, 4, str.tostring(strategy.max_drawdown, "#.##"), text_color = color.red, text_size = size.small)
+    table.cell(stats, 0, 5, "Filter", text_color = color.gray, text_size = size.small)
+    table.cell(stats, 1, 5, useFilter ? "ON" : "OFF", text_color = useFilter ? color.green : color.gray, text_size = size.small)
